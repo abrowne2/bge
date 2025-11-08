@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use ndarray::{Array1, Array2, ArrayBase, Axis, Ix2, OwnedRepr};
+use ort::value::{Tensor, Value};
 use std::array::TryFromSliceError;
 use std::path::Path;
 use tokenizers::Tokenizer;
@@ -22,7 +23,7 @@ pub enum BgeError {
 
 pub struct Bge {
     tokenizer: Tokenizer,
-    model: ort::Session,
+    model: ort::session::Session,
 }
 
 impl Bge {
@@ -60,7 +61,7 @@ impl Bge {
     {
         let tokenizer = Tokenizer::from_file(tokenizer_file_path.as_ref().to_str().unwrap())
             .map_err(|e| anyhow!(e))?;
-        let model = ort::Session::builder()?.commit_from_file(model_file_path)?;
+        let model = ort::session::Session::builder()?.commit_from_file(model_file_path)?;
         Ok(Self { tokenizer, model })
     }
 
@@ -113,21 +114,25 @@ impl Bge {
         let attention_mask: ArrayBase<OwnedRepr<i64>, Ix2> = Array2::ones([1, tokens_count]);
         let token_type_ids: ArrayBase<OwnedRepr<i64>, Ix2> = Array2::zeros([1, tokens_count]);
 
+        let input_ids_view = input_ids.view();
+        let attention_mask_view = attention_mask.view();
+        let token_type_ids_view = token_type_ids.view();
+
         let inputs = ort::inputs! {
-            "input_ids" => input_ids.view(),
-            "attention_mask" => attention_mask.view(),
-            "token_type_ids" => token_type_ids.view(),
-        }
-        .map_err(BgeError::OnnxRuntimeError)?;
+            "input_ids" => input_ids_view,
+            "attention_mask" => attention_mask_view,
+            "token_type_ids" => token_type_ids_view
+        };
 
         let outputs = self.model.run(inputs).map_err(BgeError::OnnxRuntimeError)?;
 
         let output = outputs["last_hidden_state"]
-            .try_extract_tensor()
+            .try_extract_tensor::<f32>()
             .map_err(BgeError::OnnxRuntimeError)?;
-        let view = output.view();
+        let view = output.1;
 
-        let slice = view.rows().into_iter().next().unwrap().to_slice().unwrap();
+        let vec: Vec<f32> = view.to_vec();
+        let slice = vec.as_slice();
         let mut res: [f32; 384] = slice
             .try_into()
             .map_err(|e: TryFromSliceError| BgeError::Other(e.into()))?;
