@@ -12,7 +12,7 @@ keywords = ["sentence-similarity", "text-embedding", "bert", "transformers"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ort = { version = "=2.0.0-rc.1", default-features = false, features = ["cuda", "ndarray"] }
+ort = { version = "2.0.0-rc.10", default-features = false, features = ["cuda", "ndarray", "std"] }
 tokenizers = { version = "0.15.2", features = ["http"] }
 anyhow = "1.0.81"
 ndarray = "0.15.6"
