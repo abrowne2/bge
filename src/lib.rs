@@ -1,6 +1,5 @@
 use anyhow::anyhow;
-use ndarray::{Array1, Array2, ArrayBase, Axis, Ix2, OwnedRepr};
-use ort::value::{Tensor, Value};
+use ort::value::Tensor;
 use std::array::TryFromSliceError;
 use std::path::Path;
 use tokenizers::Tokenizer;
@@ -97,7 +96,7 @@ impl Bge {
     ///     Err(e) => eprintln!("Error generating embeddings: {}", e),
     /// }
     /// ```
-    pub fn create_embeddings(&self, input: &str) -> Result<[f32; 384], BgeError> {
+    pub fn create_embeddings(&mut self, input: &str) -> Result<[f32; 384], BgeError> {
         let encoding = self
             .tokenizer
             .encode(input, true)
@@ -109,19 +108,22 @@ impl Bge {
             return Err(BgeError::LargeInput(tokens_count));
         }
 
-        let input_ids =
-            Array1::from_vec(encoding_ids.iter().map(|v| *v as i64).collect()).insert_axis(Axis(0));
-        let attention_mask: ArrayBase<OwnedRepr<i64>, Ix2> = Array2::ones([1, tokens_count]);
-        let token_type_ids: ArrayBase<OwnedRepr<i64>, Ix2> = Array2::zeros([1, tokens_count]);
+        let input_ids: Vec<i64> = encoding_ids.iter().map(|v| *v as i64).collect();
+        let attention_mask: Vec<i64> = vec![1; tokens_count];
+        let token_type_ids: Vec<i64> = vec![0; tokens_count];
+        let seq_shape = [1usize, tokens_count];
 
-        let input_ids_view = input_ids.view();
-        let attention_mask_view = attention_mask.view();
-        let token_type_ids_view = token_type_ids.view();
+        let input_ids_tensor =
+            Tensor::from_array((seq_shape, input_ids)).map_err(BgeError::OnnxRuntimeError)?;
+        let attention_mask_tensor =
+            Tensor::from_array((seq_shape, attention_mask)).map_err(BgeError::OnnxRuntimeError)?;
+        let token_type_ids_tensor =
+            Tensor::from_array((seq_shape, token_type_ids)).map_err(BgeError::OnnxRuntimeError)?;
 
         let inputs = ort::inputs! {
-            "input_ids" => input_ids_view,
-            "attention_mask" => attention_mask_view,
-            "token_type_ids" => token_type_ids_view
+            "input_ids" => input_ids_tensor,
+            "attention_mask" => attention_mask_tensor,
+            "token_type_ids" => token_type_ids_tensor
         };
 
         let outputs = self.model.run(inputs).map_err(BgeError::OnnxRuntimeError)?;
